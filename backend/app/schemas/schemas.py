@@ -10,6 +10,11 @@ class ProductOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ProductUpdate(BaseModel):
+    ferment_min: int = Field(ge=0, le=24 * 60)
+    bake_min: int = Field(ge=0, le=24 * 60)
+
+
 class OvenOut(BaseModel):
     id: int
     label: str

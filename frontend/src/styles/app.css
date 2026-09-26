@@ -246,6 +246,12 @@ select, input, .gantt-deck button, .toolbar button {
   text-align: left; font-size: .92rem;
 }
 .mono { font-family: "IBM Plex Mono", monospace; }
+.table input { width: 76px; padding: .3rem .5rem; }
+.table button {
+  background: var(--bake-copper); color: #2a1608; font-weight: 700;
+  border: none; cursor: pointer; border-radius: 4px; padding: .35rem .8rem; font: inherit;
+}
+.table button:disabled { opacity: .35; cursor: default; }
 .err { color: #ff9b7a; } .ok { color: #e8c48a; }
 
 .gantt { display: flex; flex-direction: column; gap: .65rem; }

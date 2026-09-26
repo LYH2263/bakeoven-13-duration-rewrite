@@ -11,6 +11,7 @@ from app.schemas.schemas import (
     GanttBlock,
     OvenOut,
     ProductOut,
+    ProductUpdate,
     WindowOut,
 )
 from app.services.oven_engine import (
@@ -18,6 +19,7 @@ from app.services.oven_engine import (
     RecipeDurations,
     build_occupancies,
     find_conflicts,
+    find_replan_conflicts,
     next_free_window,
 )
 
@@ -66,6 +68,38 @@ def health():
 @api_router.get("/products", response_model=list[ProductOut])
 def products(db: Session = Depends(get_db)):
     return db.scalars(select(Product).order_by(Product.id)).all()
+
+
+@api_router.put("/products/{product_id}", response_model=ProductOut)
+def update_product(product_id: int, body: ProductUpdate, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "产品不存在")
+    new_recipe = RecipeDurations(body.ferment_min, body.bake_min)
+    affected: list[Occupancy] = []  # 仍在排、用该产品的批次，按新时长重算
+    others: list[Occupancy] = []  # 其余批次保持原时长
+    for b in db.scalars(select(Batch)).all():
+        if b.product_id == product.id:
+            affected.extend(build_occupancies(b.oven_id, b.id, b.start_min, new_recipe))
+        else:
+            p = db.get(Product, b.product_id)
+            if p:
+                others.extend(build_occupancies(b.oven_id, b.id, b.start_min, _recipe(p)))
+    hits = find_replan_conflicts(others, affected)
+    if hits:
+        ex, cand = hits[0]
+        detail = (
+            f"改配方后与批次#{ex.batch_id} 的 {ex.phase} 段重叠："
+            f"[{cand.interval.start},{cand.interval.end})，时长未生效"
+        )
+        db.add(ConflictLog(batch_code=product.name, oven_id=ex.oven_id, detail=detail))
+        db.commit()
+        raise HTTPException(409, detail)
+    product.ferment_min = body.ferment_min
+    product.bake_min = body.bake_min
+    db.commit()
+    db.refresh(product)
+    return product
 
 
 @api_router.get("/ovens", response_model=list[OvenOut])

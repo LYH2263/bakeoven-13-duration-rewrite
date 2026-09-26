@@ -57,6 +57,21 @@ def find_conflicts(existing: list[Occupancy], candidates: list[Occupancy]) -> li
     return hits
 
 
+def find_replan_conflicts(
+    existing: list[Occupancy], candidates: list[Occupancy]
+) -> list[tuple[Occupancy, Occupancy]]:
+    """Conflicts for a recipe replan: candidates vs existing, plus candidates
+    against each other (same-oven batches of the replanned product all move)."""
+    hits = find_conflicts(existing, candidates)
+    for i, a in enumerate(candidates):
+        for b in candidates[i + 1 :]:
+            if a.batch_id == b.batch_id or a.oven_id != b.oven_id:
+                continue
+            if a.interval.overlaps(b.interval):
+                hits.append((a, b))
+    return hits
+
+
 def next_free_window(
     existing: list[Occupancy],
     oven_id: int,
