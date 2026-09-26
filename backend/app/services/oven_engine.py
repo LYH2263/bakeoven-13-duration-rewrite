@@ -57,6 +57,24 @@ def find_conflicts(existing: list[Occupancy], candidates: list[Occupancy]) -> li
     return hits
 
 
+def first_reschedule_conflict(
+    existing: list[Occupancy],
+    candidate_groups: list[list[Occupancy]],
+) -> tuple[Occupancy, Occupancy] | None:
+    """Place each group of re-timed occupancies onto the schedule in order.
+
+    Returns the first (existing, candidate) overlap, or None if every group
+    fits — both against ``existing`` and against groups already placed.
+    """
+    placed = list(existing)
+    for group in candidate_groups:
+        hits = find_conflicts(placed, group)
+        if hits:
+            return hits[0]
+        placed.extend(group)
+    return None
+
+
 def next_free_window(
     existing: list[Occupancy],
     oven_id: int,

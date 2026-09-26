@@ -11,6 +11,8 @@ from app.schemas.schemas import (
     GanttBlock,
     OvenOut,
     ProductOut,
+    ProductUpdate,
+    ProductUpdateResult,
     WindowOut,
 )
 from app.services.oven_engine import (
@@ -18,6 +20,7 @@ from app.services.oven_engine import (
     RecipeDurations,
     build_occupancies,
     find_conflicts,
+    first_reschedule_conflict,
     next_free_window,
 )
 
@@ -66,6 +69,40 @@ def health():
 @api_router.get("/products", response_model=list[ProductOut])
 def products(db: Session = Depends(get_db)):
     return db.scalars(select(Product).order_by(Product.id)).all()
+
+
+@api_router.patch("/products/{product_id}", response_model=ProductUpdateResult)
+def update_product(product_id: int, body: ProductUpdate, db: Session = Depends(get_db)):
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(404, "产品不存在")
+    new_recipe = RecipeDurations(body.ferment_min, body.bake_min)
+    # 仍在排且使用该产品的批次按新时长重算两段
+    affected = db.scalars(
+        select(Batch).where(
+            Batch.product_id == product.id,
+            Batch.status == "scheduled",
+        ).order_by(Batch.start_min)
+    ).all()
+    affected_ids = {b.id for b in affected}
+    existing = [o for o in _all_occupancies(db) if o.batch_id not in affected_ids]
+    groups = [build_occupancies(b.oven_id, b.id, b.start_min, new_recipe) for b in affected]
+    hit = first_reschedule_conflict(existing, groups)
+    if hit:
+        ex, cand = hit
+        code = next((b.code for b in affected if b.id == cand.batch_id), str(cand.batch_id))
+        detail = (
+            f"新时长使批次 {code} 与批次#{ex.batch_id} 的 {ex.phase} 段重叠："
+            f"[{cand.interval.start},{cand.interval.end})，配方修改未生效"
+        )
+        db.add(ConflictLog(batch_code=code, oven_id=cand.oven_id, detail=detail))
+        db.commit()
+        raise HTTPException(409, detail)
+    product.ferment_min = body.ferment_min
+    product.bake_min = body.bake_min
+    db.commit()
+    db.refresh(product)
+    return ProductUpdateResult(product=ProductOut.model_validate(product), rescheduled=len(affected))
 
 
 @api_router.get("/ovens", response_model=list[OvenOut])
